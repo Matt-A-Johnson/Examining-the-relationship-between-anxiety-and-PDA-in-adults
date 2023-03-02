@@ -1,0 +1,122 @@
+
+########## Multiple Imputation Analysis ############# 
+
+# https://measuringu.com/handle-missing-data/
+
+# The most sophisticated and, currently, most popular approach is to take the regression 
+# idea further and take advantage of correlations between responses. In multiple imputation, 
+# software creates plausible values based on the correlations for the missing data and then 
+# averages the simulated datasets by incorporating random errors in your predictions.
+
+# https://rstudio-pubs-static.s3.amazonaws.com/344055_0c737f77c0ef4e36b6865cb843a7bb4a.html
+
+# Also see: https://datascienceplus.com/imputing-missing-data-with-r-mice-package/
+
+library(missForest)
+library(Hmisc)
+library(mice)
+library(VIM)
+library(rms)
+
+# View the amount of missing data per column/variable, in this case, per question:
+sapply(data, function(x) sum(is.na(x)))
+
+# Impute missing values:
+imp <- mice(data, m=5, maxit = 50, method = 'pmm', seed = NA)
+# m: the number of imputations made per missing observation 
+#    (5 is normal–generates 5 data sets with imputed/original values)
+# maxit: the number of iterations
+# method: We use probable means  
+# seed: Values to randomly generate from
+
+summary(imp)
+
+completedData <- complete(imp,1)
+
+xyplot(imp,EDA.QA~ Gender+Age+MASQ.D30+IUS.12+SBI..Total,pch=18,cex=1)
+
+stripplot(imp, pch = 20, cex = 1.2)
+
+# Pool means and std according to Rubin's (1987) rules:
+modelFit1 <- with(imp,lm(EDA.QA~ Gender+Age+MASQ.D30+IUS.12+SBI..Total))
+summary(pool(modelFit1))
+
+################ MASQ-D30 data ######################
+
+head(MASQdata)
+
+# Remove additional rows that contain no data:
+MASQdata <- MASQdata[-c(171, 172),] 
+
+# View the amount of missing data per column/variable, in this case, per question:
+sapply(MASQdata, function(x) sum(is.na(x)))
+
+# Impute missing values:
+imp_MASQdata <- mice(MASQdata, m=5, maxit = 50, method = 'pmm', seed = 500)
+
+summary(imp_MASQdata)
+
+stripplot(imp_MASQdata, pch = 20, cex = 1.2)
+
+# Pool means and std according to Rubin's (1987) rules:
+# Stack imputed datasets in long format, exclude the original data
+imp_MASQdataS <- complete(imp_MASQdata,action="long",include = FALSE)
+
+# compute mean and standard deviation in each imputed dataset
+pool_mean <- with(imp_MASQdataS, by(imp_MASQdataS, .imp, function(x) c(mean(x$Felt.confused),sd(x$Felt.confused))))
+pool_mean
+
+Reduce("+",pool_mean)/length(pool_mean)
+
+# Add imputed data back to original data:
+MASQ.D30 <- complete(imp_MASQdata, mean(1,2,3,4,5,6))
+head(MASQ.D30)
+
+write.table(MASQ.D30, file="MASQ.D30.xlsx",sep=",",row.names=F)
+
+################ IUS-12 data ######################
+
+head(IUSdata)
+
+# Remove additional rows that contain no data:
+IUSdata <- IUSdata[-c(171, 172),] 
+
+# View the amount of missing data per column/variable, in this case, per question:
+sapply(IUSdata, function(x) sum(is.na(x)))
+
+# Impute missing values:
+imp_IUSdata <- mice(IUSdata, m=5, maxit = 50, method = 'pmm', seed = 500)
+
+summary(imp_IUSdata)
+
+stripplot(imp_IUSdata, pch = 20, cex = 1.2)
+
+# Add imputed data back to original data:
+IUS.12 <- complete(imp_IUSdata, mean(1,2,3,4,5,6))
+head(IUS.12)
+
+write.table(IUS.12, file="IUS.12.txt",sep=",",row.names=F)
+
+################ SBI data ######################
+
+head(SBIdata)
+
+# Remove additional rows that contain no data:
+SBIdata <- SBIdata[-c(171, 172),] 
+
+# View the amount of missing data per column/variable, in this case, per question:
+sapply(SBIdata, function(x) sum(is.na(x)))
+
+# Impute missing values:
+imp_SBIdata <- mice(SBIdata, m=5, maxit = 50, method = 'pmm', seed = 500)
+
+summary(imp_SBIdata)
+
+stripplot(imp_SBIdata, pch = 20, cex = 1.2)
+
+# Add imputed data back to original data:
+SBI <- complete(imp_SBIdata, mean(1,2,3,4,5,6))
+head(SBI)
+
+write.table(SBI, file="SBI.txt",sep=",",row.names=F)
+
