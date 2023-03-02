@@ -1,0 +1,582 @@
+# NOTE: 'woo' stands for 'without outliers'
+
+# Clear workspace:
+rm(list=ls())
+
+# Load libraries:
+library(languageR)
+library(lme4)
+library(plyr)
+library(histogram)
+library(tidyr)
+library(ggplot2)
+library(ggExtra)
+library(corrplot)
+library(car)
+library(olsrr)
+library(Hmisc)
+library(QuantPsyc)
+library(lm.beta)
+
+# Check the data structure:
+colnames(data)
+summary(data)
+head(data)
+str(data)
+
+# Description of dataset:
+# participant: participant numbers from 1 to 170
+# Gender: gender, categorical variable [IV]
+# Age: age, continuous variable [IV]
+# EDA-QA: EDA-QA score, continuous variable [DV]
+# MASQ-D30: MASQ-D30 score, continuous variable [IV]
+# IUS-12: IUS-12 score, continuous variable [IV]
+# SBI: SBI score, continuous variable [IV]
+
+
+################################################################
+################## plot the data first #########################
+################################################################
+
+# Generate a plot for your DV (EDA-QA).
+# Histogram with a fitted normal distribution:
+ggplot(data, aes(EDA.QA))+ 
+  geom_histogram(binwidth = 5, colour = "black", fill = "grey",
+                 aes(y = ..density..))+ # change y-axis to density
+  scale_x_continuous(name = "EDA-QA") + 
+  scale_y_continuous(name = "Density") +
+  stat_function(fun=dnorm, colour="red",
+              args=list(mean=mean(data$EDA.QA), sd=sd(data$EDA.QA)))
+
+# Generate plots for your IVS as well if you like. 
+ggplot(data, aes(MASQ.D30))+ 
+  geom_histogram(binwidth = 5, colour = "black", fill = "grey",
+                 aes(y = ..density..))+ # change y-axis to density
+  scale_x_continuous(name = "MASQ.D30") + 
+  scale_y_continuous(name = "Density") +
+  stat_function(fun=dnorm, colour="red",
+                args=list(mean=mean(data$MASQ.D30), sd=sd(data$MASQ.D30)))
+
+ggplot(data, aes(IUS.12))+ 
+  geom_histogram(binwidth = 5, colour = "black", fill = "grey",
+                 aes(y = ..density..))+ # change y-axis to density
+  scale_x_continuous(name = "IUS.12") + 
+  scale_y_continuous(name = "Density") +
+  stat_function(fun=dnorm, colour="red",
+                args=list(mean=mean(data$IUS.12), sd=sd(data$IUS.12)))
+
+ggplot(data, aes(SBI..Total))+ 
+  geom_histogram(binwidth = 5, colour = "black", fill = "grey",
+                 aes(y = ..density..))+ # change y-axis to density
+  scale_x_continuous(name = "SBI") + 
+  scale_y_continuous(name = "Density") +
+  stat_function(fun=dnorm, colour="red",
+                args=list(mean=mean(data$SBI..Total), sd=sd(data$SBI..Total)))
+
+
+################## Linearity ##################################
+
+# Next, let's generate plots showing the relationship between an IV and DVs.
+# This is important: you need to check that these relationships are *linear*.
+# Plot all of relationships between variables in one scatterplot.
+
+# Notice that we do not want to plot correlations with "participant" and "gender",
+# so we should indicate that we only want to plot the data for selected variables.
+# We will use columns 3-8, so you can specify column numbers like this:
+pairs(data[4:10], pch=16, col = "red", main = "All variables")
+
+# Or this:
+plot(data[4:10], pch=16, col = "red", main = "All continuous variables")
+
+# Let's say we want to look at all the variables split by a categorical variable like gender:
+pairs(~ SBI..Total + EDA.QA, data = data.woo,
+      main= "All continuous variables",
+      col=c('Red','Blue')[data$Gender],pch=c(1,4)[data$Gender])
+
+
+# Let's add fits (i.e., regression lines) to these plots as well
+
+library(car)
+scatterplotMatrix(data.woo[3:7],main="All continuous variables")
+# thick red line = regression line
+# dotted red lines = confidence interval
+# green line = a robust-regression line (a different type of regression, less influenced by outliers)
+
+# Check to see if the data is normally distributed (normtest.W and normtest.p
+# should have p values greater than .05)
+library(pastecs)
+stat.desc(data.woo[4:7], basic=TRUE, desc=TRUE, norm=TRUE, p=0.95)
+
+
+################################################################
+#################### Log transforming data #####################
+################################################################
+################## IGNORE THIS BIT!!! ##########################
+################################################################
+
+# It is important to note that log transformations are common with certain data sets (e.g., RTs),
+# but might not be appropriate with others (e.g., questionnaire scores).
+# Always check the literature to see if it is appropriate to log transform you data!
+
+# Log transform data in bid to rectify violation of assumptions (linearity, homoscedasticity
+# and normally distributed errors, in this case):
+data.log <- log(data[4:7])
+scatterplotMatrix(data.log,main="Log transformed data")
+
+
+################################################################
+################ Merging data frames ###########################
+################################################################
+################## IGNORE THIS BIT!!! ##########################
+################################################################
+
+# The following code allows one to merge data frames and remove rows, 
+# which might be useful in future analysis, but not here. Ignore this section for now.
+
+# Log transform just the IVs:
+IV.log <- log(data.log[4])
+
+# And then merge them with the untransformed DV:
+?merge()
+xx <- data.frame(data.log[4:6])
+xy <- data.frame(data.log[11:12])
+data.log <- merge(xx, xy)
+
+# Remove the extra rows that have seemingly been generated just for fun!
+data.log <- data.log[-c(171:28900), ]
+scatterplotMatrix(data.log,main="Log transformed IVs")
+
+# Alternatively, (and way easier!) just reomve columns and create a new data set:
+data = subset(data, select = -c(MASQ.D30.AA, SBI.A, SBI.S, SBI.R, SBI.A.avg, SBI.72, SBI.avg.rnd))
+
+data = subset(data, select = -c(SBI.A.avg.rnd))
+data = subset(data, select = -c(SBI.72))
+data = subset(data, select = -c(SBI.A, SBI.S, SBI.R))
+
+###############################################################
+###############################################################
+###############################################################
+
+
+#################### Multicolinearity #########################
+
+# You should also take a look at the correlation values themselves.
+# This is important: you need to check that the IVs are not intercorrelated,
+# i.e., that you do not have the problem of collinearity.
+
+data.woo$isFemale<- as.numeric(data.woo$isFemale)
+
+# It's more efficient to get the entire correlation matrix at once:
+all_correlations <- rcorr(as.matrix(data.woo[3:8]))
+all_correlations
+
+# Another option is to "plot" the correlation values themselves:
+all_correlations2 = cor(data.woo[3:8])
+corrplot(all_correlations2, method = "number")
+
+all_correlations3 = pcor(data.woo[3:8])
+all_correlations3
+
+# For now, note down which correlations are high. 
+# After we run the models, we will check if we have a problem with collinearity. 
+
+
+############ Independant errors ################################
+
+?durbinWatsonTest()
+
+# Check for indepence of errors:
+durbinWatsonTest(model)
+
+# OR...
+durbinWatsonTest(lm(EDA.QA ~ MASQ.D30 + IUS.12 + SBI..Total, data=data.woo))
+
+################################################################
+#################### Models ####################################
+################################################################
+############ Models with uncentered predictors #################
+
+# Make sure that all your continuous variables are NUMERICAL or INTEGER variables
+# Make sure that all your categorical variables are FACTORS
+summary(data)
+str(data)
+
+# Run the model:
+model = lm(EDA.QA ~ Gender + Age + MASQ.D30 + IUS.12 + SBI..Total, data = data)
+summary(model) 
+
+# Things to look for in the output:
+# Coefficients
+# R squared and adjusted R squared
+
+# Get confidence intervals for coefficients:
+confint(model.woo)
+
+# Calculate standardized coefficients:
+lm.beta(model.woo)
+
+# Take a look at the fitted values and residuals:
+fitted(model.woo) # this syntax will do the same: predict(model), model$fitted.values
+resid(model.woo)
+
+# Let's plot the observed and fitted values against each other to see how they compare:
+plot(predict(model),data$EDA.QA,
+     xlab="Predicted values",ylab="Observed values") 
+abline(a=0,b=1)
+
+# You can also check the extent to which each IV can predict the DV:
+# let's save the predicted values into a variable called "predict"
+predict <- predict(model)
+
+# Add deviations:
+ggplot(data, aes(x = MASQ.D30, y = EDA.QA)) +
+  geom_segment(aes(xend = MASQ.D30, yend = predict), alpha=0.1) +
+  geom_point() +
+  geom_point(aes(y = predict), shape = 1)  
+
+ggplot(data, aes(x = IUS.12, y = EDA.QA)) +
+  geom_segment(aes(xend = IUS.12, yend = predict), alpha=0.1) +
+  geom_point() +
+  geom_point(aes(y = predict), shape = 1)  
+
+ggplot(data, aes(x = SBI..Total, y = EDA.QA)) +
+  geom_segment(aes(xend = SBI..Total, yend = predict), alpha=0.1) +
+  geom_point() +
+  geom_point(aes(y = predict), shape = 1)  
+
+# You can also add a regression line, but note that in this case the predicted values will not show up
+# on the regression line (the regression line is calculated from model1, which uses multiple predictors)
+
+# If you like, you can also generate the same plots for all predictors individually.
+
+
+############ Residuals #########################################
+
+# We also need to check the distribution of the residuals.
+# Why? Look up the assumptions of linear/multiple regression in Field (or any other stats textbook).
+
+# Generate a histogram.
+# (this should approximate a normal distribution)
+hist(resid(model.woo),main='Histogram of residuals',xlab='Residuals',ylab='Frequency')
+
+# Normally we plot the standardized residuals: 
+model.stdres = rstandard(model.woo) 
+fitted <- model.woo$fitted.values
+# This should look like a random distribution
+plot(model.stdres ~ fitted)
+abline(0,0)
+# Look for points away from the line
+
+# Another (preferred) option:
+par(mar=c(2,2,2,2)) # set margins
+par(mfrow = c(2,2)) # show 4 plots together
+plot(model.woo, pch=20)
+par(mfrow = c(1,1)) # go back to the single-plot default
+
+# Look at the first plot (residuals on the y-axis vs. fitted values on the x-axis)
+# Look at the second plot (NormalQQ, i.e., a normal probability plot)
+
+##################################################################
+###################### Removing outliers #########################
+##################################################################
+
+# Remove outliers and try again...
+OutVals = boxplot(data[4:7], plot=FALSE)$out
+OutVals = boxplot(data[4:7])$out
+which(data[4:7] %in% OutVals)
+# and then...
+data.woo <- data[-c(OutVals),]
+
+# This piece of script will return the most influential row:
+car::outlierTest(model.woo)
+
+# But the best way to locate outliers is to use Cook's distance...
+# In general use, those observations that have a Cook’s distance greater than 4 times 
+# the mean may be classified as influential. 
+cooksd <- cooks.distance(model.woo)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),
+                                                   names(cooksd),""), col="red")  # add labels
+
+# See the influential rows to find the influential scores:      
+influential <- as.integer(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=TRUE))])
+head(data[4:7][influential, ])  # Influential observations.
+
+# Now, remove the most influential outliers:
+data.woo <- data[-c(2, 39, 66, 75, 149, 157, 170),]
+# [-c(2, 39, 66, 75, 149, 157, 170),] = original
+# [-c(2, 39, 66, 59, 75, 121, 128, 149, 157, 170),] = additional
+model = lm(EDA.QA ~ Gender + Age + MASQ.D30 + IUS.12 + SBI..Total, data = data)
+summary(model)
+# (Note, the data points on the far right that look like outliers come from rows 98 and 41).
+
+# Check the new data set for more influential outliers:
+head(data.woo[influential, ])  # influential observations.
+
+# Be sure to keep checking the data when removing outliers...
+par(mar=c(2,2,2,2)) # set margins
+par(mfrow = c(2,2)) # show 4 plots together
+plot(model.woo, pch=20)
+par(mfrow = c(1,1)) # go back to the single-plot default
+
+# Once outliers have been removed, run model with new dataframe (outliers removed):
+model.woo = lm(EDA.QA ~ Gender + Age + MASQ.D30 + IUS.12 + SBI..Total, data = data.woo)
+summary(model.woo)
+
+# Visualise the new model:
+par(mar=c(2,2,2,2)) # set margins
+par(mfrow = c(2,2)) # show 4 plots together
+plot(model.woo, pch=20)
+par(mfrow = c(1,1))
+
+# Look at how individual IVs correlate with the DV:
+pairs(~ SBI..Total + EDA.QA, data = data.woo,
+      main= "All continuous variables",
+      col=c('Red','Blue')[data$Gender],pch=c(1,4)[data$Gender])
+
+pairs(~ MASQ.D30 + EDA.QA, data = data.woo,
+      main= "All continuous variables",
+      col=c('Red','Blue')[data$Gender],pch=c(1,4)[data$Gender])
+
+pairs(~ IUS.12 + EDA.QA, data = data.woo,
+      main= "All continuous variables",
+      col=c('Red','Blue')[data$Gender],pch=c(1,4)[data$Gender])
+
+############ testing individual predictors #####################
+
+# Model comparison:
+
+model1 = lm (EDA.QA ~ 1, data = data.woo)
+summary(model1)
+
+model2 = lm (EDA.QA ~ Gender + Age, data = data.woo)
+summary(model2)
+
+# Next, we compare the two models (model1 and model2).
+anova(model1,model2)
+
+# The result of this test will tell you whether there is a difference in model fit.
+# If the test is significant, then the more complex model has a significantly better fit than the simpler model.
+# In other words, the extra predictor in model1 is responsible for the improvement in model fit.
+
+# If the test is not significant, then the more complex model does not provide a better fit to the data than the simpler model.
+# In other words, the extra predictor in model2 does not improve model fit.
+
+# If you want, you could repeat this procedure for any predictor you like.
+# Let's do this for a predictor we know is not significant -- i.e., age
+# Build a model with all predictors except age:
+
+model3.1 = lm (EDA.QA ~ Gender + Age + MASQ.D30, data = data.woo)
+summary(model3.1)
+
+model3.2 = lm (EDA.QA ~ Gender + Age + IUS.12, data = data.woo)
+summary(model3.2)
+
+model3.3 = lm (EDA.QA ~ Gender + Age + SBI..Total, data = data.woo)
+summary(model3.3)
+
+anova(model2,model3)
+
+model4 = lm (EDA.QA ~ Gender + Age + MASQ.D30 + IUS.12, data = data.woo)
+summary(model4)
+
+anova(model3,model4)
+
+model5 = lm (EDA.QA ~ Gender + Age + MASQ.D30 + IUS.12 + SBI..Total, data = data.woo)
+summary(model5)
+
+anova(model4,model5)
+
+# Here is some stuff about creating moderators and adding them to improve model fit:
+# https://www.data-mania.com/blog/hierarchical-moderated-multiple-regression-analysis-in-r/
+
+mod1 <- data.woo$MASQ.D30 * data.woo$IUS.12
+mod2 <- data.woo$IUS.12 * data.log$SBI.A24
+mod3 <- data.woo$MASQ.D30 * data.log$SBI.A24
+
+model6 = lm (EDA.QA ~ MASQ.D30 + IUS.12 + SBI.A + mod3, data = data.woo)
+summary(model6)
+
+# Next, compare models:
+anova(model4,model6)
+# the result of this test shows that adding age to the model does not improve model fit
+
+#################### collinearity ##############################
+
+# Let's look at the relationships between IVs to see if collinearity is an issue.
+# Here are all the correlations again: 
+all_correlations <- rcorr(as.matrix(data.woo))
+all_correlations
+
+# There is a high correlations between vocabulary_score and exposure_to_print
+# Are both of these variables necessary in the model? Are they collinear?
+# I.e., are they predicting the same variance or do they account for different portions of variance?
+
+# Check for collinearity by calculating vif (variance inflation factor):
+vif(model)
+# vif tells you how much  the  variance  of  each estimated coefficient is inflated by the existence of correlations among the IVs. 
+# vif values around 1 show little correlation between each IV and the other IVs
+# vif values greater than 4 indicate possibly problematic collinearity.
+# vif values greater than 10 indicate high collinearity.
+
+# You can also get vif plus tolerance:
+ols_vif_tol(model5)
+# Tolerance is the % of variance in the predictor that cannot be accounted for by other predictors
+# Generally speaking, you want the tolerance values to be as high as possible.
+
+# Here's how tolerance is calculated:
+# 1. Regress the kth predictor on rest of the predictors in the model
+# 2. Compute R2- the coefficient of determination from the regression in the above step.
+# 3. Tolerance= 1???R2
+
+
+#################### plotting your final model #################
+
+# When you provide a plot of your data with the regression line in a paper, it is useful
+# to print the regression equation on your plot.
+
+predict.woo <- predict(model5)
+
+# Step 1: get all the coefficients from your best-fitting model
+coefs <- coef(model5)
+b0 <- round(coefs[1],2)
+b1 <- round(coefs[2],2)
+b2 <- round(coefs[3],2)
+b3 <- round(coefs[4],2)
+b4 <- round(coefs[5],2)
+b5 <- round(coefs[6],2)
+r2 <- round(summary(model.woo)$r.squared, 2)
+
+# Step 2: put the equation together
+equation <- paste("y =",b0,"+",b1,"x Gender +",b2, "x Age +",b3, "x MASQ.D30 +",b4, "x IUS.12 +",b5, "x SBI..Total +", "R squared =", r2)
+print(equation)
+
+# Now generate the plot:
+# Predicted values go on the x-axis, observed values fo on the y-axis. Inc. the R2 value 
+# in the plot along with the full regression equation:
+ggplot(data.woo, aes(x = predict(model.woo),y = EDA.QA)) +
+  geom_point(size=2, alpha = 1) +
+  theme_bw()+theme(axis.line = element_line(colour = "black"),
+                   panel.grid.major = element_blank(),
+                   panel.grid.minor = element_blank())+
+  # panel.border = element_blank(),
+  # panel.background = element_blank()) +
+  geom_abline(data = predict(model5), col="red") +
+  ggtitle("Predicted vs Observed values") +
+  xlab("Predicted values") + ylab("Observed values")
+
+# Alternatively (preferably), try...
+ggplot(data.woo, aes(x = predict(model5),y = EDA.QA))  +
+  geom_point(size=2, alpha = 1)  + 
+  geom_smooth(method=lm) +
+  ggtitle("Predicted vs observed values") +
+  xlab("Predicted values") + ylab("Observed values") +
+  geom_text(x = 5, y = 35, label = equation, hjust=0, size=4, fontface="plain")
+
+# save the plot if you want to keep it
+ggsave(filename="C:\\..........\\plot1.pdf", plot=last_plot(),scale=2, dpi=200)
+
+# Get a summary of the descriptive statistics:
+summary(data.woo)
+sd(data.woo$EDA.QA)
+sd(data.woo$MASQ.D30)
+sd(data.woo$IUS.12)
+sd(data.woo$SBI..Total)
+sd(data.woo$Age)
+
+summary(model5)
+
+lm.beta(model5)
+lm.beta(model2)
+
+################################################################
+############## Shared and unshared variance ####################
+################################################################
+# http://faculty.cas.usf.edu/mbrannick/regression/Part3/ImportanceNarrative.html
+
+# Calculate % of variance explained by each individual predictor:
+af <- anova(model5)
+afss <- af$"Sum Sq"
+print(cbind(af,PctExp=afss/sum(afss)*100))
+# The right hand column (PctExp) refers to the % explained.
+
+# To find the unique contribution of each independent variable in Table 5.2, 
+# we take the total R2 and subtract the R2 for each of the constituent variables. 
+# Thus, for X1, we have .44 (total R2) less .36 (R2 for X2 considered alone) = .08, 
+# the unique contribution of X1 above and beyond X2 (UY:X1 in Figure 5.2). For X2 (UY:X2), 
+# we have .44 - .25 = .19. Now if we add the unique contributions, .08 + .19 = .27, which is 
+# less than .44. The difference is that part of Y that is predicted jointly by X1 and X2. 
+# Thus, .44-.27 = .17, which is the shared portion of Y that cannot be attributed 
+# unambiguously to either X1 or X2.
+
+# One way is to multiply the standardized regression weights (betas) by the zero-order 
+# (raw, unadjusted) correlations (βi*ri). In our first example (5.1), the independent 
+# variables were uncorrelated, so that the correlation coefficients are equal to the beta 
+# weights. Therefore, multiplying beta by r is equal to squaring the correlation coefficient. 
+# In our example, we have .5*.5 and .6*.6 or .25 and .36, which sum to .61. In our second 
+# example (5.2), the independent variables were correlated .4. The resulting standardized 
+# regression weights (betas) are .3095 and .4762. When multiplied by their respective 
+# correlations, we get .3095*.5= .15 and .4762*.6 = .29, which sum to .44, the total R2.
+
+# Code binary variable (Gender) with Female=0 and Male=1
+data.woo$isFemale<- (data.woo$Gender)
+levels(data.woo$isFemale) <- c(0,1)
+
+# Check the correlation between Gender and EDA.QA scores:
+cor(data.woo$EDA.QA, data.woo$isFemale, method = "pearson")
+
+# Gender
+GenderVE<- 1.47886*-.04746927
+# Age:
+AgeVE<- -.05348*-.27
+# MASQ-D30:
+AnxVE<- .17708*.61
+# IUS-12:
+IUVE<- .12910*.48
+# SBI:
+AntVE<- .01465*.38
+
+TVE<- sum(GenderVE, AgeVE, AnxVE, IUVE, AntVE)
+head(TVE)
+
+# R2= .3896, while TVE= .119793
+R2T<- .3896
+# Gender
+R2G<- .05^2
+# Age:
+R2A<- .27^2
+# MASQ-D30:
+R2M<- .61^2
+# IUS-12:
+R2I<- .48^2
+# SBI:
+R2S<- .38^2
+
+# Sum of R2 for individuals predictors= .6717467
+
+(sum(R2G, R2A, R2M, R2I))
+
+sum(-0.2844, -0.3550467, 0.08995333, -0.05174667, -0.1377467)
+-0.7389867
+
+library(ppcor)
+spcor(data.woo[3:8])
+
+# This code will calculate relative importance metrics (lmg) which relate to the 
+# individual contributions of each IV.
+library(relaimpo)
+relaimpo::calc.relimp(model5)
+# Or...
+calc.relimp(model5, type = c("lmg"), rela = TRUE)
+?calc.relimp
+
+# The sum of resulting lmg values should equate to the total R2 (which they do!)
+sum(0.003251527, 0.028420067, 0.220167898, 0.100089766, 0.056821419)
+
+############# Calculating effect size ##########################
+
+# Calculate effect sizes:
+library(lsr)
+etaSquared(model5, type = 2, anova = FALSE )
+
